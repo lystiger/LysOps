@@ -1,0 +1,5 @@
+# Ignore secrets and credentials
+*client_secret*
+*credentials*.json
+*.env*
+.env
