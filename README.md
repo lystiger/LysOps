@@ -24,7 +24,7 @@ flowchart TD
         
         subgraph Triage["MSG / Zalo Realtime Engine"]
             Z1["ZALO-01: Hourly Personal Triage\n- Intent classification (4 lanes)\n- Case linking & state store\n- Urgent & Human-required alerts"]
-            Z2["ZALO-02: Stakeholder Router\n- Phuong realtime alerts & digest"]
+            Z2["ZALO-02: Stakeholder Router\n- MyLove realtime alerts & digest"]
         end
 
         subgraph Brief["OPS / Daily Synthesis Engine"]
@@ -68,7 +68,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **`OPS-01`** | **Morning Operating Brief** | `Cron (07:30 ICT daily)` | Aggregates Calendar, actionable Gmail, and communications triage into an executive daily briefing with top 3 priorities and noise suppression metrics. |
 | **`ZALO-01`** | **Hourly Personal Communications Triage** | `Webhook` & `Hourly Cron` | Classifies incoming chat streams into 4 action lanes, tracks cases, issues immediate alerts for human decisions, and compiles an hourly digest. |
-| **`ZALO-02`** | **Phuong Realtime Alert & Digest Router** | `Webhook` | Specialized router ensuring high-priority visibility for critical stakeholder conversations without information loss. |
+| **`ZALO-02`** | **MyLove Realtime Alert & Digest Router** | `Webhook` | Specialized router ensuring high-priority visibility for critical stakeholder conversations without information loss. |
 | **`SYS-01`** | **Global Workflow Failure Handler** | `Error Trigger (Instance-wide)` | Intercepts workflow failures across n8n, extracts node stack traces and execution URLs, and dispatches incident alarms to Telegram. |
 | **`TEST-01`** | **Failure Handler Test** | `Manual` | Synthetic failure trigger used to verify error alerting and Telegram dispatch pipelines end-to-end. |
 
@@ -108,7 +108,7 @@ LysOps/
     ├── SYS-01_global_failure_handler.json     # Global error handling workflow definition
     ├── TEST-01_failure_test.json              # Synthetic failure test workflow
     ├── ZALO-01_hourly_triage.json             # Hourly communications triage workflow
-    └── ZALO-02_phuong_alerts.json             # Dedicated stakeholder alert router
+    └── ZALO-02_mylove_alerts.json             # Dedicated stakeholder alert router
 ```
 
 ---
