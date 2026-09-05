@@ -24,15 +24,15 @@
     },
     {
       "parameters": {
-        "operation": "getAll",
         "calendar": {
           "__rl": true,
           "mode": "list",
           "value": "primary"
         },
+        "returnAll": true,
+        "timeMin": "={{ $today.startOf('day').toISO() }}",
+        "timeMax": "={{ $today.endOf('day').toISO() }}",
         "options": {
-          "timeMin": "={{ $today.startOf('day').toISO() }}",
-          "timeMax": "={{ $today.endOf('day').toISO() }}",
           "singleEvents": true
         }
       },
@@ -45,14 +45,22 @@
       "id": "ops01-get-calendar",
       "name": "Get Today's Calendar",
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "VdPHkiuyvLFR6jtE",
+          "name": "Google Calendar account"
+        }
+      }
     },
     {
       "parameters": {
+        "resource": "message",
         "operation": "getAll",
         "limit": 50,
+        "simple": true,
         "filters": {
-          "q": "={{ 'after:' + Math.floor($now.minus({ hours: 24 }).toSeconds()) + ' -category:promotions -category:social -is:spam' }}"
+          "q": "newer_than:1d -category:promotions -category:social -is:spam"
         }
       },
       "type": "n8n-nodes-base.gmail",
@@ -64,7 +72,13 @@
       "id": "ops01-get-gmail",
       "name": "Get Recent Gmail",
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "PiVIPmkVUPwZ7EPb",
+          "name": "Gmail account"
+        }
+      }
     },
     {
       "parameters": {
