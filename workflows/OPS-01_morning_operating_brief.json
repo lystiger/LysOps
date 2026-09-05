@@ -109,7 +109,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=You are the Executive Operations Assistant for an engineering and business lead in Vietnam.\nYour task is to generate the OPS-01 Morning Operating Brief for today ({{ $json.date }}).\n\nINPUT CONTEXT (in JSON format):\nToday's Calendar Events:\n{{ JSON.stringify($json.calendar) }}\n\nRecent Emails (last 24h):\n{{ JSON.stringify($json.email) }}\n\nRecent Messages:\n{{ JSON.stringify($json.messages) }}\n\nPrefiltered Low-Value Count:\n{{ $json.stats.prefiltered_count }}\n\nCLASSIFICATION RULES:\nClassify all actionable inputs into:\n- ACTION_REQUIRED (needs immediate action, response, or deadline fulfillment)\n- DECISION_REQUIRED (requires human choice, approval, sign-off, or financial check)\n- WAITING (waiting on 3rd party, colleague, delivery, or resolution)\n- FYI (important operational background, workshop status, context)\n- IGNORE (routine newsletters, notifications, casual banter with no action)\n\nPRIORITIZATION CRITERIA:\n- Deadlines & today's schedule\n- Meetings scheduled for today\n- Work assignments and senior requests\n- Critical business / production problems or maintenance\n- Purchase or restock requests (note: review only, never auto-purchase)\n- Explicit confirmations or reactions needed\n- Financial / payment / invoice issues\n- University / course obligations\n- Strict rule: Attention compression! Do not list routine chat or unimportant items.\n\nOUTPUT FORMAT SPECIFICATION:\nYou MUST format the output strictly following this structure:\nMORNING OPS — {{ $json.date }}\n\nTODAY\n• HH:MM — [Event Title] (Location / Attendees if relevant)\n(If no meetings scheduled today: • No scheduled meetings today)\n\nNEEDS ACTION\n• [Sender / Source]: [Specific action required] — [Deadline if any]\n(If none: • None)\n\nDECISIONS\n• [Sender / Source]: [Decision required] — [Context/Impact]\n(If none: • None)\n\nWAITING\n• [Item]: [What we are waiting for and from whom]\n(If none: • None)\n\nFYI\n• [Brief informational update]\n(If none: • None)\n\nTOP 3\n1. [Top priority #1]\n2. [Top priority #2]\n3. [Top priority #3]\n\nFILTERED\n• X low-value items ignored\n\n(Count total ignored items including prefiltered count and items classified as IGNORE).\nKeep it concise, clear, human-readable, professional, and dense with signal. Do NOT use markdown code fences around the brief."
+        "text": "=You are the Executive Operations Assistant for an engineering and business lead in Vietnam.\nYour task is to generate the OPS-01 Morning Operating Brief for today ({{ $json.date }}).\nYou MUST sync visually and tonally with the ZALO TRIAGE briefings on Telegram.\nUse HTML tags: <b>bold</b>, <i>italic</i>, and <code>code</code>. Do NOT use markdown asterisks (*).\n\nINPUT CONTEXT:\nToday's Calendar Events:\n{{ JSON.stringify($json.calendar) }}\n\nRecent Emails (last 24h):\n{{ JSON.stringify($json.email) }}\n\nRecent Messages:\n{{ JSON.stringify($json.messages) }}\n\nPrefiltered Low-Value Items Count:\n{{ $json.stats.prefiltered_count }}\n\nCLASSIFICATION & FORMAT SPECIFICATION:\nCalculate actual counts and output strictly following this template:\n\n<b>🌅 MORNING OPS</b>  ·  {{ $json.date }}  ·  07:30\n📅 [Số lượng] lịch  •  🔴 [Số lượng] cần bạn  •  🟡 [Số lượng] quyết định  •  🔕 [Số lượng] lọc\n\n<b>📅 HÔM NAY</b>\n• 🕒 <b>HH:MM</b> — [Tiêu đề sự kiện] (Địa điểm nếu có)\n(Nếu không có: • <i>Không có lịch hẹn hôm nay</i>)\n\n<b>🔴 CẦN BẠN XỬ LÝ</b>\n• <b>[Nguồn / Người gửi]</b>: [Nội dung hành động cụ thể]  •  ⏰ <i>[Hạn chót / Mức gấp nếu có]</i>\n(Nếu không có: • <i>Không có mục cần xử lý gấp</i>)\n\n<b>🟡 CẦN QUYẾT ĐỊNH</b>\n• <b>[Nguồn]</b>: [Quyết định cần đưa ra]  •  <i>[Bối cảnh / Chi phí nếu có]</i>\n(Chỉ hiển thị mục này nếu có việc cần bạn ra quyết định/phê duyệt/chi tiền)\n\n<b>⏳ ĐANG THEO DÕI / CHỜ</b>\n• [Nội dung việc đang theo dõi hoặc đang chờ bên thứ ba]\n(Chỉ hiển thị mục này nếu có việc đang chờ)\n\n<b>💡 THÔNG TIN</b>\n• <b>[Nguồn]</b>: [Thông tin hoạt động hữu ích tóm tắt ngắn]\n(Chỉ hiển thị mục này nếu có)\n\n<b>🏆 TOP 3 ƯU TIÊN</b>\n<b>1.</b> [Ưu tiên số 1 cho ngày hôm nay]\n<b>2.</b> [Ưu tiên số 2]\n<b>3.</b> [Ưu tiên số 3]\n\n<i>🔕 [Tổng số lượng lọc bao gồm prefiltered và tin rác/newsletter/quảng cáo] mục ít quan trọng đã được lọc tự động.</i>\n\nCRITICAL RULES:\n- Attention compression: Do NOT dump every notification. Synthesize signal.\n- Language: Professional Vietnamese with standard tech/ops terms (matching ZALO-01 style).\n- Do NOT output markdown code fences (never output ```html or ```). Output raw formatted text directly."
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
@@ -144,16 +144,17 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "8909610365",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json.telegram_text }}",
         "additionalFields": {
           "appendAttribution": false,
+          "parse_mode": "HTML",
           "disable_web_page_preview": true
         }
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        720,
+        940,
         0
       ],
       "id": "ops01-send-brief",
@@ -164,6 +165,19 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "function sanitizeTelegramHtml(text) {\n  if (!text) return '';\n  // Match allowed Telegram tags\n  const tokens = [];\n  const tokenized = String(text).replace(/<\\/?(b|i|code|s|u|pre|a)(?:\\s+[^>]+)?>/gi, (match) => {\n    tokens.push(match);\n    return '___TAG_TOKEN_' + (tokens.length - 1) + '___';\n  });\n\n  let escaped = tokenized\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n\n  escaped = escaped.replace(/___TAG_TOKEN_(\\d+)___/g, (_, i) => tokens[Number(i)]);\n  return escaped.trim();\n}\n\nconst raw = $json.text ?? $json.output ?? '';\nconst telegramText = sanitizeTelegramHtml(raw);\n\nreturn [{\n  json: {\n    ...$json,\n    telegram_text: telegramText\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "ops01-format-brief",
+      "name": "Format Telegram Brief"
     }
   ],
   "connections": {
@@ -237,6 +251,17 @@
       "main": [
         [
           {
+            "node": "Format Telegram Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Telegram Brief": {
+      "main": [
+        [
+          {
             "node": "Send Morning Brief",
             "type": "main",
             "index": 0
@@ -245,10 +270,15 @@
       ]
     }
   },
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "timezone": "Asia/Ho_Chi_Minh",
     "errorWorkflow": "DjRtEOTpQGAPQWwg"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
   }
 }
