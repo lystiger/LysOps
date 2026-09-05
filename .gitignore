@@ -3,3 +3,16 @@
 *credentials*.json
 *.env*
 .env
+
+# Ignore operational databases and runtime SQLite files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+lysops.db
+data/
+
+# Ignore sensitive operational logs and dumps
+*.log
+*.dump
+*.tar.gz

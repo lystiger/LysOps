@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OperationalEvent",
+  "description": "Canonical LysOps Operational Event Contract",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Deterministic stable identifier (e.g. zalo:<msg-id>, gmail:<id>)"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the event occurred at source"
+    },
+    "ingested_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when the event was ingested"
+    },
+    "source": {
+      "type": "string",
+      "description": "Originating source system (e.g. zalo, gmail, calendar)"
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Domain-specific event type (e.g. message_triage, email_alert)"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "ACTION_REQUIRED",
+        "DECISION_REQUIRED",
+        "WAITING",
+        "FYI",
+        "IGNORE"
+      ],
+      "description": "Actionability classification"
+    },
+    "priority": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Normalized priority score between 0.0 and 1.0"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Concise executive summary of the event (no raw payload dump)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "RESOLVED",
+        "DISMISSED"
+      ],
+      "default": "OPEN",
+      "description": "Lifecycle status of the operational event"
+    },
+    "source_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "External reference, thread ID, or case identifier"
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Identifier linking related multi-step operational events"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Structured, non-sensitive operational metadata",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "ingested_at",
+    "source",
+    "event_type",
+    "summary"
+  ],
+  "additionalProperties": false
+}

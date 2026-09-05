@@ -1,0 +1,20 @@
+{
+  "event_id": "zalo:msg-8f6a2b9d4c1e",
+  "occurred_at": "2026-09-05T13:00:00.000Z",
+  "ingested_at": "2026-09-05T13:00:01.250Z",
+  "source": "zalo",
+  "event_type": "message_triage",
+  "category": "ACTION_REQUIRED",
+  "priority": 0.8,
+  "summary": "Worker requested maintenance for cutting machine",
+  "status": "OPEN",
+  "source_ref": "CASE-7b24f41b",
+  "correlation_id": null,
+  "metadata": {
+    "sender_name": "Nguyen Van A",
+    "sender_role": "worker",
+    "lane": "AUTO-HANDLE",
+    "intent": "maintenance-incident",
+    "urgent": true
+  }
+}

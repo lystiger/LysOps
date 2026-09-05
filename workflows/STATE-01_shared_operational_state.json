@@ -1,0 +1,104 @@
+{
+  "id": "STATE01SHAREDv1",
+  "name": "STATE-01 | Shared Operational State",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -300,
+        0
+      ],
+      "id": "state01-trigger",
+      "name": "Execute Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and normalize operational events for LysOps canonical event store\nconst items = $input.all();\nconst normalized = [];\nconst allowedCategories = new Set(['ACTION_REQUIRED', 'DECISION_REQUIRED', 'WAITING', 'FYI', 'IGNORE']);\nconst allowedStatuses = new Set(['OPEN', 'RESOLVED', 'DISMISSED']);\nconst now = new Date().toISOString();\n\nfor (const item of items) {\n  const raw = item.json ?? {};\n\n  // Support query action if requested\n  if (raw.action === 'query') {\n    normalized.push({\n      _action: 'query',\n      source: raw.source ? String(raw.source).toLowerCase() : null,\n      category: raw.category ? String(raw.category).toUpperCase() : null,\n      status: raw.status ? String(raw.status).toUpperCase() : null,\n      since: raw.since || null,\n      limit: Number(raw.limit) || 100\n    });\n    continue;\n  }\n\n  // Required field validation for upsert\n  if (!raw.event_id || typeof raw.event_id !== 'string') {\n    throw new Error('STATE-01 Validation Error: Missing or invalid required field \"event_id\"');\n  }\n  if (!raw.source || typeof raw.source !== 'string') {\n    throw new Error(`STATE-01 Validation Error: Missing or invalid required field \"source\" for event ${raw.event_id}`);\n  }\n  if (!raw.event_type || typeof raw.event_type !== 'string') {\n    throw new Error(`STATE-01 Validation Error: Missing or invalid required field \"event_type\" for event ${raw.event_id}`);\n  }\n  if (!raw.summary || typeof raw.summary !== 'string') {\n    throw new Error(`STATE-01 Validation Error: Missing or invalid required field \"summary\" for event ${raw.event_id}`);\n  }\n\n  // Normalization & Privacy hygiene\n  const category = allowedCategories.has(raw.category) ? raw.category : 'FYI';\n  const status = allowedStatuses.has(raw.status) ? raw.status : 'OPEN';\n\n  let priority = Number(raw.priority);\n  if (!Number.isFinite(priority) || priority < 0 || priority > 1) {\n    priority = category === 'ACTION_REQUIRED' ? 0.8 : (category === 'DECISION_REQUIRED' ? 0.7 : 0.4);\n  }\n\n  // Sanitize summary: trim, max 500 chars\n  const cleanSummary = String(raw.summary).replace(/\\s+/g, ' ').trim().slice(0, 500);\n\n  // Filter metadata to prevent secrets/tokens/credentials\n  const safeMetadata = {};\n  if (raw.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)) {\n    for (const [k, v] of Object.entries(raw.metadata)) {\n      const lowerK = k.toLowerCase();\n      if (lowerK.includes('token') || lowerK.includes('secret') || lowerK.includes('key') || lowerK.includes('pass') || lowerK.includes('auth')) {\n        continue;\n      }\n      if (typeof v === 'string' && v.length > 500) {\n        safeMetadata[k] = v.slice(0, 500);\n      } else {\n        safeMetadata[k] = v;\n      }\n    }\n  }\n\n  normalized.push({\n    _action: 'upsert',\n    event_id: raw.event_id.trim(),\n    occurred_at: raw.occurred_at ? new Date(raw.occurred_at).toISOString() : now,\n    ingested_at: raw.ingested_at ? new Date(raw.ingested_at).toISOString() : now,\n    source: raw.source.trim().toLowerCase(),\n    event_type: raw.event_type.trim().toLowerCase(),\n    category,\n    priority,\n    summary: cleanSummary,\n    status,\n    source_ref: raw.source_ref ? String(raw.source_ref).slice(0, 100) : null,\n    correlation_id: raw.correlation_id ? String(raw.correlation_id).slice(0, 100) : null,\n    metadata: safeMetadata,\n    metadata_json: JSON.stringify(safeMetadata),\n    created_at: now\n  });\n}\n\nreturn normalized.map(n => ({ json: n }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        0
+      ],
+      "id": "state01-validate-normalize",
+      "name": "Validate and Normalize Event"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sqlite = require('node:sqlite');\nconst dbPath = '/data/lysops/lysops.db';\nconst db = new sqlite.DatabaseSync(dbPath);\n\n// Ensure table and indexes exist\ndb.exec(`\n  CREATE TABLE IF NOT EXISTS operational_events (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    event_id TEXT NOT NULL UNIQUE,\n    occurred_at TEXT NOT NULL,\n    ingested_at TEXT NOT NULL,\n    source TEXT NOT NULL,\n    event_type TEXT NOT NULL,\n    category TEXT,\n    priority REAL,\n    summary TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'OPEN',\n    source_ref TEXT,\n    correlation_id TEXT,\n    metadata_json TEXT,\n    created_at TEXT NOT NULL\n  );\n  CREATE INDEX IF NOT EXISTS idx_operational_events_occurred ON operational_events(occurred_at);\n  CREATE INDEX IF NOT EXISTS idx_operational_events_source ON operational_events(source);\n  CREATE INDEX IF NOT EXISTS idx_operational_events_category ON operational_events(category);\n  CREATE INDEX IF NOT EXISTS idx_operational_events_status ON operational_events(status);\n`);\n\nconst upsertStmt = db.prepare(`\n  INSERT INTO operational_events (\n    event_id, occurred_at, ingested_at, source, event_type,\n    category, priority, summary, status, source_ref,\n    correlation_id, metadata_json, created_at\n  ) VALUES (\n    ?, ?, ?, ?, ?,\n    ?, ?, ?, ?, ?,\n    ?, ?, ?\n  )\n  ON CONFLICT(event_id) DO UPDATE SET\n    category = excluded.category,\n    priority = excluded.priority,\n    summary = excluded.summary,\n    status = excluded.status,\n    source_ref = excluded.source_ref,\n    correlation_id = excluded.correlation_id,\n    metadata_json = excluded.metadata_json;\n`);\n\nconst selectStmt = db.prepare('SELECT * FROM operational_events WHERE event_id = ?');\n\nconst results = [];\nconst items = $input.all();\n\nfor (const item of items) {\n  const e = item.json;\n  if (e._action === 'query') {\n    let sql = 'SELECT * FROM operational_events WHERE 1=1';\n    const params = [];\n    if (e.source) {\n      sql += ' AND source = ?';\n      params.push(e.source);\n    }\n    if (e.category) {\n      sql += ' AND category = ?';\n      params.push(e.category);\n    }\n    if (e.status) {\n      sql += ' AND status = ?';\n      params.push(e.status);\n    }\n    if (e.since) {\n      sql += ' AND occurred_at >= ?';\n      params.push(e.since);\n    }\n    sql += ' ORDER BY occurred_at DESC LIMIT ?';\n    params.push(e.limit || 100);\n\n    const rows = db.prepare(sql).all(...params);\n    for (const r of rows) {\n      let meta = {};\n      try { meta = JSON.parse(r.metadata_json || '{}'); } catch (_) {}\n      results.push({\n        json: {\n          id: r.id,\n          event_id: r.event_id,\n          occurred_at: r.occurred_at,\n          ingested_at: r.ingested_at,\n          source: r.source,\n          event_type: r.event_type,\n          category: r.category,\n          priority: r.priority,\n          summary: r.summary,\n          status: r.status,\n          source_ref: r.source_ref,\n          correlation_id: r.correlation_id,\n          metadata: meta,\n          created_at: r.created_at\n        }\n      });\n    }\n  } else {\n    upsertStmt.run(\n      e.event_id, e.occurred_at, e.ingested_at, e.source, e.event_type,\n      e.category, e.priority, e.summary, e.status, e.source_ref,\n      e.correlation_id, e.metadata_json, e.created_at\n    );\n\n    const stored = selectStmt.get(e.event_id);\n    let meta = {};\n    try { meta = JSON.parse(stored.metadata_json || '{}'); } catch (_) {}\n\n    results.push({\n      json: {\n        id: stored.id,\n        event_id: stored.event_id,\n        occurred_at: stored.occurred_at,\n        ingested_at: stored.ingested_at,\n        source: stored.source,\n        event_type: stored.event_type,\n        category: stored.category,\n        priority: stored.priority,\n        summary: stored.summary,\n        status: stored.status,\n        source_ref: stored.source_ref,\n        correlation_id: stored.correlation_id,\n        metadata: meta,\n        created_at: stored.created_at\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        0
+      ],
+      "id": "state01-upsert-event",
+      "name": "Upsert Operational Event"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return stored operational events to caller\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        360,
+        0
+      ],
+      "id": "state01-return-event",
+      "name": "Return Stored Event"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate and Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "Upsert Operational Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Operational Event": {
+      "main": [
+        [
+          {
+            "node": "Return Stored Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "errorWorkflow": "DjRtEOTpQGAPQWwg"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
