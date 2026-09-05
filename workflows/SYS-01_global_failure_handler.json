@@ -1,0 +1,73 @@
+{
+  "id": "DjRtEOTpQGAPQWwg",
+  "name": "SYS-01 | Global Workflow Failure Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        0
+      ],
+      "id": "dee8ae01-670d-47ce-9752-75131acd1843",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"occurred_at\": \"={{ $now.toISO() }}\",\n  \"workflow_name\": \"={{ $json.workflow?.name || 'Unknown workflow' }}\",\n  \"workflow_id\": \"={{ $json.workflow?.id || null }}\",\n  \"execution_id\": \"={{ $json.execution?.id || null }}\",\n  \"execution_url\": \"={{ $json.execution?.url || null }}\",\n  \"node_name\": \"={{ $json.execution?.lastNodeExecuted || 'Unknown node' }}\",\n  \"error_message\": \"={{ $json.execution?.error?.message || $json.error?.message || $json.message || 'Unknown error' }}\",\n  \"error_stack\": \"={{ $json.execution?.error?.stack || $json.error?.stack || null }}\",\n  \"execution_mode\": \"={{ $json.execution?.mode || 'unknown' }}\",\n  \"status\": \"OPEN\",\n  \"source\": \"n8n\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "22f835da-4504-4bad-8ddb-8b00f38ca66b",
+      "name": "Normalize Incidents"
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('SYS-01 INCIDENT', JSON.stringify($json, null, 2));\n\nreturn [\n  {\n    json: {\n      ...$json,\n      dev_logged: true\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "id": "9129613b-b672-4847-9c9c-55df14ace71f",
+      "name": "DEV Incident Sink"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Incidents": {
+      "main": [
+        [
+          {
+            "node": "DEV Incident Sink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

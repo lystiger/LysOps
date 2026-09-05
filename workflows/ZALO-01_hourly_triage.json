@@ -1,0 +1,253 @@
+{
+  "id": "ZALO01TRIAGEv1",
+  "name": "ZALO-01 | Hourly Personal Communications Triage",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zalo-triage-inbox-8f6a2b9d4c1e73a0f5b8d26c9e4a7f31",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -560,
+        -176
+      ],
+      "id": "d1309122-7c93-4ff2-aa21-af0d995fd32a",
+      "name": "Zalo Message Intake",
+      "webhookId": "cc4a720e-1298-473b-969c-9d5b922aa0eb"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst envelope = $json.body ?? $json;\nconst incoming = Array.isArray(envelope)\n  ? envelope\n  : Array.isArray(envelope.messages)\n    ? envelope.messages\n    : [envelope];\n\nconst store = $getWorkflowStaticData('global');\nstore.schemaVersion ??= 1;\nstore.seen ??= {};\nstore.cases ??= {};\nstore.pendingDigest ??= [];\nstore.metrics ??= { accepted: 0, duplicates: 0, rejected: 0 };\n\nconst nowIso = new Date().toISOString();\nconst normalize = (value) => String(value ?? '')\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/đ/g, 'd')\n  .replace(/Đ/g, 'D')\n  .toLowerCase();\n\nconst hash = (value) => {\n  let h = 2166136261;\n  for (let i = 0; i < value.length; i++) {\n    h ^= value.charCodeAt(i);\n    h = Math.imul(h, 16777619);\n  }\n  return (h >>> 0).toString(16).padStart(8, '0');\n};\n\nconst asIso = (value) => {\n  if (value == null || value === '') return nowIso;\n  const numeric = Number(value);\n  const candidate = Number.isFinite(numeric)\n    ? new Date(numeric < 100000000000 ? numeric * 1000 : numeric)\n    : new Date(value);\n  return Number.isNaN(candidate.getTime()) ? nowIso : candidate.toISOString();\n};\n\nconst draftReply = (intent, senderName) => {\n  const name = senderName ? ' ' + senderName : '';\n  if (intent === 'casual') {\n    return [\n      'Haha nghe vui đó' + name + ' 😄 Để mình xem rồi nhắn lại nhé.',\n      'Cảm ơn' + name + ' nha 😄 Mình đang bận chút, lát mình trả lời kỹ hơn.'\n    ];\n  }\n  return [\n    'Mình đã nhận được tin. Mình kiểm tra và phản hồi sớm nhé.',\n    'Cảm ơn bạn đã nhắn. Cho mình ít phút để xem lại thông tin.'\n  ];\n};\n\nconst classify = (rawText, senderRole) => {\n  const text = normalize(rawText);\n  const role = normalize(senderRole);\n  const has = (pattern) => pattern.test(text);\n\n  const poll = has(/\\b(poll|vote|binh chon|chon phuong an|chon lua)\\b/);\n  const reaction = has(/\\b(react|tha tim|tha like|bam like|xac nhan da doc|confirm da hieu)\\b/);\n  const approval = has(/\\b(phe duyet|approve|approval|dong y|ky duyet|quyet dinh|xac nhan chap thuan)\\b/);\n  const money = has(/\\b(thanh toan|chuyen khoan|bao gia|chi phi|ngan sach)\\b/) || /\\d[\\d.,]*\\s*(k|tr|trieu|vnd|dong)\\b/.test(text);\n  const incident = has(/\\b(hong|loi|bao tri|sua may|may dung|ket may|ro ri|chay|khoi|keu bat thuong|mat dien|tai nan|su co|incident|broken|fault|maintenance)\\b/);\n  const procurement = has(/\\b(het hang|het vat tu|thieu vat tu|can mua|mua them|dat hang|bo sung|ton kho|procurement|purchase|restock)\\b/);\n  const assignment = has(/\\b(giao viec|phan cong|nhiem vu|assignment|hoan thanh|nop bao cao|deadline)\\b/) || ((role.includes('senior') || role.includes('manager') || role.includes('boss') || role.includes('sep')) && has(/\\b(nho|lam|gui|chuan bi|kiem tra)\\b/));\n  const workerReport = role.includes('worker') || role.includes('operator') || role.includes('cong nhan') || has(/\\b(bao cao ca|tinh hinh ca|tai xuong|tai kho|san xuat|worker report)\\b/);\n  const deadline = has(/\\b(hom nay|ngay mai|sang mai|chieu mai|gap|khan|truoc \\d|deadline|due)\\b/) || /\\b\\d{1,2}([:/h-]\\d{1,2})?\\s*(am|pm)?\\b/.test(text);\n  const casual = has(/\\b(haha|hehe|hihi|lol|di ca phe|an trua|cuoi tuan|vui|chuc mung|cam on|thank|meme)\\b/);\n  const question = rawText.includes('?') || has(/\\b(duoc khong|the nao|khi nao|o dau|why|how|when|can you)\\b/);\n\n  let lane = 'IGNORE-DIGEST';\n  let intent = 'informational';\n  let rationale = 'No action requested';\n\n  if (poll) {\n    lane = 'HUMAN-REQUIRED'; intent = 'poll-choice'; rationale = 'A person must choose; automation must not vote';\n  } else if (reaction) {\n    lane = 'HUMAN-REQUIRED'; intent = 'reaction-confirmation'; rationale = 'A reaction would represent the user';\n  } else if (approval || money) {\n    lane = 'HUMAN-REQUIRED'; intent = approval ? 'approval' : 'money-decision'; rationale = 'Approval, agreement, or money requires the user';\n  } else if (incident) {\n    lane = 'AUTO-HANDLE'; intent = 'maintenance-incident'; rationale = 'Track incident and follow-up';\n  } else if (procurement) {\n    lane = 'AUTO-HANDLE'; intent = 'procurement'; rationale = 'Create a procurement task without purchasing';\n  } else if (assignment) {\n    lane = 'AUTO-HANDLE'; intent = 'senior-assignment'; rationale = 'Track assignment and deadline';\n  } else if (workerReport || deadline) {\n    lane = 'AUTO-HANDLE'; intent = workerReport ? 'worker-report' : 'deadline'; rationale = 'Track operational update';\n  } else if (casual || question) {\n    lane = 'DRAFT-FOR-YOU'; intent = casual ? 'casual' : 'reply-needed'; rationale = 'Draft only; never impersonate the user';\n  }\n\n  const urgent = lane === 'HUMAN-REQUIRED' || (incident && has(/\\b(dung|gap|khan|chay|khoi|tai nan|nguy hiem|ngay)\\b/)) || (deadline && has(/\\b(hom nay|gap|khan|ngay)\\b/));\n  const done = has(/\\b(da xong|xong roi|hoan tat|da sua|resolved|fixed|completed|done)\\b/);\n  // Short workplace updates often omit the subject because it is obvious from\n  // the conversation (for example, \"đã PR rồi nhé\"). Treat these as follow-ups,\n  // but only promote them to tracked work when an open case exists in the same\n  // conversation. This avoids inventing a task from an ambiguous standalone note.\n  const terseStatus = has(/\\b(da .{1,48} roi(?: nhe| nha)?|da (?:lam|gui|dat|tao|pr)\\b|vua .{1,32} xong)\\b/);\n  const followUp = done || terseStatus || has(/\\b(cap nhat|update|dang lam|dang sua|tho den|chua xong|tiep tuc|da goi)\\b/);\n  const deadlineMatch = rawText.match(/\\b(hôm nay|ngày mai|sáng mai|chiều mai|trước[^,.!?;]{0,24}|\\d{1,2}[:h]\\d{0,2}|\\d{1,2}[\\/-]\\d{1,2}(?:[\\/-]\\d{2,4})?)\\b/i);\n  return { lane, intent, rationale, urgent, done, followUp, deadline: deadlineMatch?.[0] ?? null };\n};\n\nconst acceptedRecords = [];\nconst immediateAlerts = [];\nlet duplicateCount = 0;\nlet rejectedCount = 0;\n\nfor (const raw of incoming) {\n  const text = String(raw.text ?? raw.message ?? raw.content ?? '').trim();\n  const senderId = String(raw.sender_id ?? raw.senderId ?? raw.from?.id ?? raw.user_id ?? 'unknown');\n  const senderName = String(raw.sender_name ?? raw.senderName ?? raw.from?.name ?? raw.user_name ?? 'Unknown sender');\n  const senderRole = String(raw.sender_role ?? raw.senderRole ?? raw.role ?? 'unknown');\n  const conversationId = String(raw.conversation_id ?? raw.conversationId ?? raw.thread_id ?? raw.chat_id ?? raw.from?.conversation_id ?? senderId);\n  const timestamp = asIso(raw.timestamp ?? raw.created_at ?? raw.createdAt ?? raw.time);\n  if (!text) {\n    rejectedCount++;\n    continue;\n  }\n\n  const suppliedId = raw.message_id ?? raw.messageId ?? raw.msgId ?? raw.id;\n  const messageId = String(suppliedId ?? ('hash-' + hash([conversationId, senderId, timestamp, text].join('|'))));\n  const dedupeKey = conversationId + ':' + messageId;\n  if (store.seen[dedupeKey]) {\n    duplicateCount++;\n    continue;\n  }\n  store.seen[dedupeKey] = nowIso;\n\n  const decision = classify(text, senderRole);\n  const explicitCaseId = raw.case_id ?? raw.caseId ?? raw.reply_to_case_id ?? null;\n  let caseId = explicitCaseId ? String(explicitCaseId) : null;\n  if (!caseId && decision.followUp) {\n    const candidates = Object.values(store.cases)\n      .filter((item) => item.conversation_id === conversationId && item.status !== 'DONE')\n      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));\n    caseId = candidates[0]?.case_id ?? null;\n  }\n  const linkedCase = caseId ? store.cases[caseId] : null;\n  if (linkedCase && decision.followUp && decision.lane === 'IGNORE-DIGEST') {\n    decision.lane = 'AUTO-HANDLE';\n    decision.intent = linkedCase.intent;\n    decision.rationale = 'Status follow-up attached to the latest open case in this conversation';\n  } else if (!linkedCase && decision.followUp && decision.lane === 'IGNORE-DIGEST') {\n    decision.lane = 'DRAFT-FOR-YOU';\n    decision.intent = 'reply-needed';\n    decision.rationale = 'Ambiguous status update without an open case; show it and draft a clarification';\n  }\n  const needsCase = decision.lane === 'AUTO-HANDLE' || decision.lane === 'HUMAN-REQUIRED';\n  if (!caseId && needsCase) caseId = 'CASE-' + hash(conversationId + '|' + decision.intent + '|' + timestamp);\n\n  if (caseId && needsCase) {\n    const existing = store.cases[caseId] ?? {\n      case_id: caseId,\n      conversation_id: conversationId,\n      intent: decision.intent,\n      status: 'OPEN',\n      created_at: timestamp,\n      messages: []\n    };\n    existing.intent = existing.intent === 'informational' ? decision.intent : existing.intent;\n    existing.status = decision.done ? 'DONE' : existing.status;\n    existing.updated_at = timestamp;\n    existing.deadline = decision.deadline ?? existing.deadline ?? null;\n    existing.messages.push({ message_id: messageId, timestamp, sender_id: senderId, text });\n    existing.messages = existing.messages.slice(-50);\n    store.cases[caseId] = existing;\n  }\n\n  const record = {\n    message_id: messageId,\n    dedupe_key: dedupeKey,\n    conversation_id: conversationId,\n    sender_id: senderId,\n    sender_name: senderName,\n    sender_role: senderRole,\n    timestamp,\n    text,\n    case_id: caseId,\n    lane: decision.lane,\n    intent: decision.intent,\n    urgent: decision.urgent,\n    rationale: decision.rationale,\n    deadline: decision.deadline,\n    draft_replies: decision.lane === 'DRAFT-FOR-YOU' ? draftReply(decision.intent, senderName) : [],\n    safety: {\n      auto_react: false,\n      auto_vote: false,\n      auto_approve: false,\n      auto_agree: false,\n      auto_spend: false,\n      auto_send_casual_reply: false\n    }\n  };\n  acceptedRecords.push(record);\n  store.pendingDigest.push(record);\n  if (decision.urgent || decision.lane === 'HUMAN-REQUIRED') immediateAlerts.push(record);\n}\n\nstore.pendingDigest = store.pendingDigest.slice(-500);\nstore.metrics.accepted += acceptedRecords.length;\nstore.metrics.duplicates += duplicateCount;\nstore.metrics.rejected += rejectedCount;\nstore.last_ingest_at = nowIso;\n\nreturn [{\n  json: {\n    accepted: acceptedRecords.length,\n    duplicates: duplicateCount,\n    rejected: rejectedCount,\n    immediate_count: immediateAlerts.length,\n    immediate_alerts: immediateAlerts,\n    notify: immediateAlerts.length > 0,\n    notification_channel: 'TELEGRAM_PRIMARY',\n    delivery_status: immediateAlerts.length ? 'WAITING_FOR_TELEGRAM_CREDENTIAL' : 'NOT_NEEDED',\n    processed_at: nowIso\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -176
+      ],
+      "id": "7b24f41b-7fe6-4c57-9f41-22443ce70b4e",
+      "name": "Deduplicate Classify and Link State"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nif (!$json.notify) return [];\nconst store = $getWorkflowStaticData('global');\nstore.notificationOutbox ??= [];\nconst alerts = $json.immediate_alerts ?? [];\nconst esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst clip = (value, max = 170) => {\n  const text = String(value ?? '').replace(/\\s+/g, ' ').trim();\n  return text.length > max ? text.slice(0, max - 1) + '…' : text;\n};\nconst time = (value) => new Intl.DateTimeFormat('vi-VN', {\n  timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit'\n}).format(new Date(value));\nconst intentMeta = {\n  'poll-choice': ['🗳️', 'BÌNH CHỌN', 'Chọn một phương án'],\n  'reaction-confirmation': ['👍', 'XÁC NHẬN', 'React/xác nhận thủ công'],\n  approval: ['✅', 'PHÊ DUYỆT', 'Bạn quyết định đồng ý hay từ chối'],\n  'money-decision': ['💳', 'CHI PHÍ', 'Kiểm tra số tiền trước khi quyết định'],\n  'maintenance-incident': ['🛠️', 'SỰ CỐ', 'Kiểm tra an toàn và phân công xử lý'],\n  procurement: ['📦', 'MUA/BỔ SUNG', 'Xác nhận mức ưu tiên; chưa phát sinh mua'],\n  'senior-assignment': ['📋', 'NHIỆM VỤ', 'Xem yêu cầu và thời hạn'],\n  deadline: ['⏰', 'THỜI HẠN', 'Xác nhận ưu tiên'],\n  'worker-report': ['🏭', 'BÁO CÁO XƯỞNG', 'Kiểm tra cập nhật']\n};\nconst humanCount = alerts.filter((item) => item.lane === 'HUMAN-REQUIRED').length;\nconst urgentCount = alerts.filter((item) => item.urgent).length;\nconst blocks = alerts.slice(0, 6).map((item, index) => {\n  const meta = intentMeta[item.intent] ?? ['🔔', String(item.intent || 'CẦN CHÚ Ý').toUpperCase(), 'Xem nội dung'];\n  const priority = item.lane === 'HUMAN-REQUIRED' ? '🔴 CẦN BẠN' : '🟠 KHẨN';\n  const deadline = item.deadline ? '⏰ ' + esc(item.deadline) : '⏰ Chưa ghi hạn';\n  const caseRef = item.case_id ? '  •  <code>#' + esc(String(item.case_id).replace(/^CASE-/, '')) + '</code>' : '';\n  return '<b>' + (index + 1) + '. ' + meta[0] + ' ' + esc(meta[1]) + '</b>  ·  <b>' + priority + '</b>\\n' +\n    '“' + esc(clip(item.text)) + '”\\n' +\n    '👤 ' + esc(item.sender_name) + '  •  🕘 ' + esc(time(item.timestamp)) + '  •  ' + deadline + caseRef + '\\n' +\n    '↳ <i>' + esc(meta[2]) + '</i>';\n});\nif (alerts.length > 6) blocks.push('<i>+' + (alerts.length - 6) + ' mục khác sẽ có trong bản tổng hợp.</i>');\nconst message = '<b>🚨 ZALO TRIAGE</b>  ·  ' + esc(time(new Date())) + '\\n' +\n  '🔴 ' + humanCount + ' cần bạn  •  🟠 ' + urgentCount + ' khẩn  •  📥 ' + alerts.length + ' mới\\n\\n' +\n  blocks.join('\\n\\n') + '\\n\\n<i>Không tự trả lời, react, phê duyệt hay chi tiền.</i>';\nconst entry = {\n  id: 'ALERT-' + Date.now(),\n  channel: 'TELEGRAM',\n  priority: 'IMMEDIATE',\n  text: message,\n  created_at: new Date().toISOString(),\n  status: 'WAITING_FOR_CREDENTIAL'\n};\nstore.notificationOutbox.push(entry);\nstore.notificationOutbox = store.notificationOutbox.slice(-200);\nconsole.log('ZALO TRIAGE OUTBOX', JSON.stringify(entry));\nreturn [{ json: { accepted: $json.accepted, duplicates: $json.duplicates, immediate_count: alerts.length, outbox_written: true, outbox_id: entry.id, telegram_text: entry.text, notify: true, delivery_status: entry.status } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -176
+      ],
+      "id": "13258049-6d2c-4be5-a5b2-d5684e0f1dee",
+      "name": "Prepare Immediate Telegram Alert"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -560,
+        144
+      ],
+      "id": "c97ee030-e716-44ae-87fb-d85dd96a413a",
+      "name": "Every Hour"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst store = $getWorkflowStaticData('global');\nstore.pendingDigest ??= [];\nstore.notificationOutbox ??= [];\nstore.seen ??= {};\nconst now = new Date();\nconst pending = store.pendingDigest.splice(0, store.pendingDigest.length);\nconst grouped = {\n  'AUTO-HANDLE': pending.filter((item) => item.lane === 'AUTO-HANDLE'),\n  'DRAFT-FOR-YOU': pending.filter((item) => item.lane === 'DRAFT-FOR-YOU'),\n  'HUMAN-REQUIRED': pending.filter((item) => item.lane === 'HUMAN-REQUIRED'),\n  'IGNORE-DIGEST': pending.filter((item) => item.lane === 'IGNORE-DIGEST')\n};\n\nconst esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst clip = (value, max = 125) => {\n  const text = String(value ?? '').replace(/\\s+/g, ' ').trim();\n  return text.length > max ? text.slice(0, max - 1) + '…' : text;\n};\nconst clock = (value) => new Intl.DateTimeFormat('vi-VN', {\n  timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit'\n}).format(new Date(value));\nconst intentMeta = {\n  'poll-choice': ['🗳️', 'Bình chọn', 'Chọn phương án'],\n  'reaction-confirmation': ['👍', 'Xác nhận', 'React thủ công'],\n  approval: ['✅', 'Phê duyệt', 'Quyết định đồng ý/từ chối'],\n  'money-decision': ['💳', 'Chi phí', 'Kiểm tra và quyết định'],\n  'maintenance-incident': ['🛠️', 'Sự cố', 'Đang theo dõi xử lý'],\n  procurement: ['📦', 'Mua/bổ sung', 'Đã ghi việc; chưa đặt mua'],\n  'senior-assignment': ['📋', 'Nhiệm vụ', 'Đang theo dõi'],\n  deadline: ['⏰', 'Thời hạn', 'Đang theo dõi'],\n  'worker-report': ['🏭', 'Báo cáo xưởng', 'Đã gắn vào luồng việc'],\n  casual: ['💬', 'Bạn bè/đồng nghiệp', 'Bản nháp sẵn sàng'],\n  'reply-needed': ['💬', 'Cần phản hồi', 'Bản nháp sẵn sàng']\n};\nconst caseRef = (item) => item.case_id ? '  •  <code>#' + esc(String(item.case_id).replace(/^CASE-/, '')) + '</code>' : '';\nconst overflow = (items, shown) => items.length > shown ? '\\n<i>+' + (items.length - shown) + ' mục khác đã được ghi lại.</i>' : '';\nconst humanLines = grouped['HUMAN-REQUIRED'].slice(0, 5).map((item) => {\n  const meta = intentMeta[item.intent] ?? ['🔴', item.intent, 'Bạn xem và quyết định'];\n  return '• ' + meta[0] + ' <b>' + esc(meta[1]) + '</b> · ' + esc(item.sender_name) + (item.deadline ? ' · ⏰ ' + esc(item.deadline) : '') + caseRef(item) + '\\n  “' + esc(clip(item.text)) + '”  →  <i>' + esc(meta[2]) + '</i>';\n});\nconst autoLines = grouped['AUTO-HANDLE'].slice(0, 7).map((item) => {\n  const meta = intentMeta[item.intent] ?? ['🟡', item.intent, 'Đang theo dõi'];\n  return '• ' + meta[0] + ' <b>' + esc(meta[1]) + '</b> · ' + esc(item.sender_name) + ' — ' + esc(clip(item.text, 95)) + (item.deadline ? ' · ⏰ ' + esc(item.deadline) : '') + caseRef(item);\n});\nconst draftLines = grouped['DRAFT-FOR-YOU'].slice(0, 4).map((item) => {\n  const draft = item.draft_replies?.[0] ?? 'Mình đã nhận được tin. Mình phản hồi sớm nhé.';\n  return '• 💬 <b>' + esc(item.sender_name) + '</b>: “' + esc(clip(item.text, 90)) + '”\\n  ↳ <i>' + esc(clip(draft, 120)) + '</i>';\n});\nconst notify = humanLines.length + autoLines.length + draftLines.length > 0;\nconst summary = 'Zalo brief: ' + grouped['HUMAN-REQUIRED'].length + ' need you, ' + grouped['AUTO-HANDLE'].length + ' tracked, ' + grouped['DRAFT-FOR-YOU'].length + ' drafts, ' + grouped['IGNORE-DIGEST'].length + ' suppressed';\nconst sections = [];\nif (humanLines.length) sections.push('<b>🔴 CẦN BẠN</b>\\n' + humanLines.join('\\n') + overflow(grouped['HUMAN-REQUIRED'], 5));\nif (autoLines.length) sections.push('<b>🟡 ĐANG THEO DÕI</b>\\n' + autoLines.join('\\n') + overflow(grouped['AUTO-HANDLE'], 7));\nif (draftLines.length) sections.push('<b>✍️ BẢN NHÁP</b>\\n' + draftLines.join('\\n') + overflow(grouped['DRAFT-FOR-YOU'], 4));\nconst message = '<b>📬 ZALO BRIEF</b>  ·  ' + esc(clock(now)) + '\\n' +\n  '🔴 ' + grouped['HUMAN-REQUIRED'].length + ' cần bạn  •  🟡 ' + grouped['AUTO-HANDLE'].length + ' theo dõi  •  ✍️ ' + grouped['DRAFT-FOR-YOU'].length + ' nháp  •  🔕 ' + grouped['IGNORE-DIGEST'].length + ' lọc\\n\\n' +\n  sections.join('\\n\\n') + '\\n\\n<i>Lần tổng hợp tiếp theo sau 1 giờ.</i>';\n\nlet outboxId = null;\nlet telegramText = null;\nif (notify) {\n  const entry = {\n    id: 'DIGEST-' + Date.now(),\n    channel: 'TELEGRAM',\n    priority: 'HOURLY',\n    text: message,\n    created_at: now.toISOString(),\n    status: 'WAITING_FOR_CREDENTIAL'\n  };\n  store.notificationOutbox.push(entry);\n  store.notificationOutbox = store.notificationOutbox.slice(-200);\n  outboxId = entry.id;\n  telegramText = entry.text;\n  console.log('ZALO TRIAGE HOURLY OUTBOX', JSON.stringify(entry));\n}\n\nconst cutoff = now.getTime() - 30 * 24 * 60 * 60 * 1000;\nfor (const [key, seenAt] of Object.entries(store.seen)) {\n  if (new Date(seenAt).getTime() < cutoff) delete store.seen[key];\n}\nstore.last_hourly_run_at = now.toISOString();\nif (!notify) return [];\n\nreturn [{ json: {\n  notify,\n  summary,\n  counts: {\n    human_required: grouped['HUMAN-REQUIRED'].length,\n    auto_handle: grouped['AUTO-HANDLE'].length,\n    draft_for_you: grouped['DRAFT-FOR-YOU'].length,\n    ignored_suppressed: grouped['IGNORE-DIGEST'].length,\n    total: pending.length\n  },\n  outbox_id: outboxId,\n  telegram_text: telegramText,\n  delivery_status: notify ? 'WAITING_FOR_TELEGRAM_CREDENTIAL' : 'NOT_NEEDED',\n  ran_at: store.last_hourly_run_at\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        144
+      ],
+      "id": "d87cbb0c-4aa3-4e4b-acff-8f7564071f46",
+      "name": "Build Hourly Digest and Prune State"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst store = $getWorkflowStaticData('global');\nconst audit = {\n  ...$json,\n  open_cases: Object.values(store.cases ?? {}).filter((item) => item.status !== 'DONE').length,\n  total_cases: Object.keys(store.cases ?? {}).length,\n  outbox_depth: (store.notificationOutbox ?? []).filter((item) => item.status === 'WAITING_FOR_CREDENTIAL').length\n};\nconsole.log('ZALO TRIAGE AUDIT', JSON.stringify(audit));\nreturn [{ json: audit }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -16
+      ],
+      "id": "4b57bf77-f4fd-4dbd-8966-a6602a5f10b0",
+      "name": "Safe Notification Audit Sink"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "8909610365",
+        "text": "={{ $json.telegram_text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        160,
+        -16
+      ],
+      "id": "b3488d89-ab48-4f95-88ae-fbe89c2baa8d",
+      "name": "Send Telegram Notification",
+      "credentials": {
+        "telegramApi": {
+          "id": "nKQcfForTgoBcbTG",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst store = $getWorkflowStaticData('global');\nconst outbox = store.notificationOutbox ?? [];\nconst entry = [...outbox].reverse().find((item) => item.status === 'WAITING_FOR_CREDENTIAL');\nif (entry) {\n  entry.status = 'SENT';\n  entry.sent_at = new Date().toISOString();\n  entry.telegram_message_id = $json.message_id ?? null;\n}\nreturn [{ json: {\n  telegram_sent: true,\n  telegram_message_id: $json.message_id ?? null,\n  chat_id: $json.chat?.id ?? null,\n  outbox_id: entry?.id ?? null,\n  sent_at: entry?.sent_at ?? new Date().toISOString()\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -16
+      ],
+      "id": "afb44313-0646-4354-a789-9b41a8fdb1af",
+      "name": "Record Telegram Delivery"
+    },
+    {
+      "parameters": {
+        "content": "ZALO-01 — Intake\n\nPOST normalized Zalo messages to the private high-entropy webhook path. The path acts as a local capability secret and stays out of execution data. Messages are deduplicated before triage.",
+        "height": 208,
+        "width": 352
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -416
+      ],
+      "id": "01a4b4e4-8309-44a9-8553-f82eddd42059",
+      "name": "Intake Notes"
+    },
+    {
+      "parameters": {
+        "content": "SAFETY BOUNDARY\n\nNever auto-react, vote, approve, agree, spend money, or send casual replies. Casual/work replies are drafts only. Telegram is the primary delivery channel; until its credential exists, alerts remain in the safe outbox and execution logs. Gmail is intentionally omitted because no Gmail credential is configured.",
+        "height": 256,
+        "width": 448
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -128
+      ],
+      "id": "3e23d2ac-0ff6-4703-925f-892605a65eeb",
+      "name": "Safety Notes"
+    }
+  ],
+  "connections": {
+    "Zalo Message Intake": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Classify and Link State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Classify and Link State": {
+      "main": [
+        [
+          {
+            "node": "Prepare Immediate Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Immediate Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Build Hourly Digest and Prune State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Hourly Digest and Prune State": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Record Telegram Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Telegram Delivery": {
+      "main": [
+        [
+          {
+            "node": "Safe Notification Audit Sink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "errorWorkflow": "DjRtEOTpQGAPQWwg",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

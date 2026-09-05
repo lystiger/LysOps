@@ -1,0 +1,75 @@
+{
+  "id": "6FntT5rt4o8cEOTs",
+  "name": "TEST-01 | Failure Test",
+  "nodes": [
+    {
+      "parameters": {
+        "errorMessage": "SYS-01 TEST FAILURE"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        64,
+        -64
+      ],
+      "id": "7f023109-6364-4c9e-8f6c-c428089a04fd",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "content": "TEST-01\n",
+        "height": 80,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -176
+      ],
+      "id": "0bbbede5-285c-4ef6-ad9f-c98c9425d779",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -160,
+        -64
+      ],
+      "id": "c701751b-8583-4f13-b6d7-7fc7217c1082",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "DjRtEOTpQGAPQWwg",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}
